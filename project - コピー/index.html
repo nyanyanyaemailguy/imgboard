@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>ローカル掲示板</title></head>
+<body>
+  <center>
+    <h2>新規スレッド作成</h2>
+    <form id="threadForm">
+      名前: <input id="name"><br>
+      画像URL: <input id="image"><br>
+      メッセージ:<br><textarea id="msg"></textarea><br>
+      <button type="submit">投稿</button>
+    </form>
+
+    <hr>
+    <div id="threads"></div>
+  </center>
+
+  <script>
+    const FILE = 'threads.json';
+    const MAX_INACTIVE_TIME = 24 * 60 * 60 * 1000; // 24時間（ミリ秒）
+
+    const genUID = () => {
+      const base = btoa(new Date().toDateString()).slice(0, 3);
+      const rand = Math.random().toString(36).slice(2, 9);
+      return base + rand;
+    };
+
+    const getTime = () => {
+      const now = new Date();
+      return `${now.getFullYear()}年 ${now.getMonth() + 1}月 ${now.getDate()}日 ${now.getHours()}時${now.getMinutes()}分`;
+    };
+
+    const checkInactiveThreads = (threads) => {
+      const now = new Date().getTime();
+      return threads.filter(thread => {
+        const lastUpdated = new Date(thread.lastUpdated).getTime();
+        return now - lastUpdated <= MAX_INACTIVE_TIME; // 24時間以内に更新されたスレッドのみ残す
+      });
+    };
+
+    async function load() {
+      const res = await fetch(FILE);
+      const threads = await res.json();
+
+      // 非アクティブスレッドを削除
+      const activeThreads = checkInactiveThreads(threads);
+      const area = document.getElementById('threads');
+      area.innerHTML = '';
+
+      activeThreads.forEach((t, i) => {
+        const table = document.createElement('table');
+        table.border = "1";
+        const row = table.insertRow();
+        const cell1 = row.insertCell();
+        const cell2 = row.insertCell();
+
+        if (t.image) {
+          const img = document.createElement('img');
+          img.src = t.image;
+          img.style.maxWidth = '200px';
+          cell1.appendChild(img);
+        }
+
+        const meta = document.createElement('div');
+        meta.textContent = `${i + 1}.${t.name} (${t.uid}) ${t.date}`;
+
+        const msg = document.createElement('div');
+        msg.textContent = t.message;
+
+        const replyForm = document.createElement('form');
+        replyForm.innerHTML = `
+          <input placeholder="名前" class="replyName"><br>
+          <textarea placeholder="返信" class="replyText"></textarea><br>
+          <button type="submit">返信</button>
+        `;
+
+        replyForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const name = replyForm.querySelector('.replyName').value || '名無し';
+          const message = replyForm.querySelector('.replyText').value;
+          const uid = genUID();
+          const time = getTime();
+
+          const res = await fetch(FILE);
+          const threads = await res.json();
+          const thread = threads[i];
+          if (!thread.replies) thread.replies = [];
+          thread.replies.push({
+            name,
+            uid,
+            date: `${thread.replies.length + 1}.${name} (${uid}) ${time}`,
+            message
+          });
+
+          // 更新日時を変更
+          thread.lastUpdated = new Date().toISOString();
+
+          const saveRes = await fetch(FILE, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(threads)
+          });
+
+          if (saveRes.ok) {
+            load();
+          } else {
+            alert('返信失敗💥');
+          }
+        });
+
+        cell2.appendChild(meta);
+        cell2.appendChild(msg);
+        if (t.replies) {
+          t.replies.forEach(r => {
+            const rDiv = document.createElement('div');
+            rDiv.innerHTML = `<hr><b>${r.date}</b><br>${r.message}`;
+            cell2.appendChild(rDiv);
+          });
+        }
+        cell2.appendChild(document.createElement('hr'));
+        cell2.appendChild(replyForm);
+        area.appendChild(table);
+        area.appendChild(document.createElement('br'));
+      });
+    }
+
+    document.getElementById('threadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('name').value || '名無し';
+      const image = document.getElementById('image').value;
+      const msg = document.getElementById('msg').value;
+      const uid = genUID();
+      const time = getTime();
+
+      const res = await fetch(FILE);
+      const threads = await res.json();
+
+      const newThread = {
+        id: threads.length + 1,
+        name,
+        uid,
+        date: time,
+        image,
+        message: msg,
+        replies: [],
+        lastUpdated: new Date().toISOString()
+      };
+
+      threads.unshift(newThread);
+
+      const saveRes = await fetch(FILE, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(threads)
+      });
+
+      if (saveRes.ok) {
+        load();
+      } else {
+        alert('投稿失敗😭');
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>
